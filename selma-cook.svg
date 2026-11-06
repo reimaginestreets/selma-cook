@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <!-- eye stalks -->
+  <path d="M52.5 28 L50 18.5 M57.5 28 L60 18.5" stroke="#5F7A6B" stroke-width="2"/>
+  <circle cx="49.8" cy="17.5" r="2.2" fill="#5F7A6B"/>
+  <circle cx="60.2" cy="17.5" r="2.2" fill="#5F7A6B"/>
+  <!-- body -->
+  <path d="M5 53 Q5 47 12 47 L43 47 Q49 47 49 40 L49 33 Q49 26.5 55 26.5 Q61 26.5 61 33 L61 44 Q61 56 49 56 L9 56 Q5 56 5 53 Z" fill="#B9CBBE" stroke="#5F7A6B" stroke-width="2"/>
+  <!-- smile + cheek -->
+  <path d="M54.5 36.5 Q56.3 38.3 58.2 36.5" stroke="#5F7A6B" stroke-width="1.6"/>
+  <circle cx="53" cy="34.5" r="1.3" fill="#E3B7A0"/>
+  <!-- sushi-roll shell, a slice side on, rice outside: a band of rice, a thin ring of nori,
+       more rice, and vegetables at the heart -->
+  <rect x="11" y="14" width="33" height="33" rx="7" fill="#FFFDFA" stroke="#5F7A6B" stroke-width="2"/>
+  <!-- sesame on the outer rice -->
+  <path d="M14.6 21 h.1 M14.6 32 h.1 M14.8 41 h.1 M21 17.6 h.1 M33 17.6 h.1 M40.4 25 h.1 M40.4 36 h.1 M25 43.4 h.1 M36 43.4 h.1" stroke="#C9A86A" stroke-width="1.3"/>
+  <!-- nori -->
+  <rect x="17" y="20" width="21" height="21" rx="4.5" fill="#FFFDFA" stroke="#3E5247" stroke-width="1.1"/>
+  <!-- fillings, each a solid color: avocado and carrot with sweet potato on top,
+       pickled radish and cucumber below, so the two greens sit apart -->
+  <path d="M21 30 Q21 23.5 27.3 23.5 V30 Z" fill="#B9CBBE"/>
+  <rect x="27.8" y="23.5" width="6.2" height="3" rx="1" fill="#C98B6B"/>
+  <rect x="27.8" y="27" width="6.2" height="3" rx="1" fill="#D9BC6A"/>
+  <rect x="21" y="30.5" width="6.3" height="7" rx="1.2" fill="#DDA0A0"/>
+  <rect x="27.8" y="30.5" width="6.2" height="7" rx="1.2" fill="#8FA596"/>
+</svg>

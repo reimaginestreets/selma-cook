@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Selma — a slow kitchen journal</title>
+  <meta name="description" content="What you cooked and when, the week's line-up, and a shopping list ready for the store.">
+  <meta name="theme-color" content="#F6F3EE">
+  <link rel="icon" href="selma-cook.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-title" content="Slow cooking">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="masthead">
+    <a class="home-link" href="../selma/">← All Selma journals</a>
+    <div class="brand">
+      <img class="selma" src="selma-cook.svg" width="56" height="56" alt="Selma the Snail, with a slice of sushi roll for a shell">
+      <div>
+        <h1>Selma</h1>
+        <p>a slow kitchen journal</p>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Sections">
+      <button class="tab" data-view="week" aria-current="page">This week</button>
+      <button class="tab" data-view="shop">Shopping</button>
+      <button class="tab" data-view="calendar">Calendar</button>
+      <button class="tab" data-view="box">Recipes</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- This week: the past seven days, and the line-up for the days ahead -->
+    <section id="view-week">
+      <div id="nudges"></div>
+      <div id="week"></div>
+    </section>
+
+    <!-- Shopping: the ingredients for the line-up, ready for the store -->
+    <section id="view-shop" hidden>
+      <div id="shop"></div>
+    </section>
+
+    <!-- Calendar: a month at a time, then everything, newest first -->
+    <section id="view-calendar" hidden>
+      <div id="calendar"></div>
+      <div class="top log-top">
+        <h2>Everything, newest first</h2>
+        <input type="search" id="search" placeholder="Find a dish, a recipe, a note" autocomplete="off" aria-label="Find a dish">
+      </div>
+      <div id="log"></div>
+    </section>
+
+    <!-- Recipes: every dish, as index cards -->
+    <section id="view-box" hidden>
+      <div class="top">
+        <button class="btn primary" data-action="add-recipe">Add a recipe</button>
+        <div class="segmented" id="box-filter" role="radiogroup" aria-label="Show"></div>
+        <div class="arrange" id="box-sort"></div>
+      </div>
+      <div id="pick"></div>
+      <div id="box"></div>
+      <p class="pick-line"><button class="link" data-action="pick" id="pick-button">Can't decide? Pick one for me</button></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Everything stays in this browser. <span id="backup-status"></span></p>
+    <a class="link" href="../selma-roam/">Slow roaming journal</a>
+    <a class="link" href="../selma-time/">Slow time journal</a>
+    <div class="backup">
+      <button class="btn quiet" data-action="export">Save a backup</button>
+      <button class="btn quiet" data-action="import">Restore from backup</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </div>
+  </footer>
+
+  <!-- A dish: its recipe, and every time it was made -->
+  <dialog id="dish-dialog" class="wide">
+    <div id="dish-card"></div>
+  </dialog>
+
+  <!-- Telling Selma what you made, or changing it -->
+  <dialog id="meal-dialog">
+    <form id="meal-form">
+      <h2 id="meal-heading">What did you make?</h2>
+      <input type="hidden" name="id">
+      <label>The dish
+        <input name="dish" required autocomplete="off" maxlength="120" list="dishes" placeholder="e.g., Lentil soup, banana bread">
+        <datalist id="dishes"></datalist>
+      </label>
+      <div id="last-time"></div>
+      <label>When?
+        <input name="day" type="date" required>
+      </label>
+      <label>Where's the recipe from? <span class="optional">optional</span>
+        <input name="from" autocomplete="off" maxlength="300" list="sources" placeholder="e.g., a cookbook and page, a link, Mom, made it up">
+        <datalist id="sources"></datalist>
+      </label>
+      <label>How did it go? Anything for next time? <span class="optional">optional</span>
+        <textarea name="note" rows="3"></textarea>
+      </label>
+      <label class="heart-toggle"><input type="checkbox" name="keeper"><span class="heart-mark" aria-hidden="true"></span> A keeper: make it again</label>
+      <div class="dialog-actions">
+        <button type="button" class="btn danger" data-action="remove-meal" id="remove-meal" hidden>Remove this</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn quiet" data-action="close-dialog">Cancel</button>
+        <button type="submit" class="btn primary" id="meal-submit">Keep it</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A recipe: its name, ingredients and how to make it -->
+  <dialog id="recipe-dialog">
+    <form id="recipe-form">
+      <h2 id="recipe-heading">Add a recipe</h2>
+      <input type="hidden" name="key">
+      <label>Name
+        <input name="name" required autocomplete="off" maxlength="120">
+      </label>
+      <label>Where's it from? <span class="optional">optional</span>
+        <input name="from" autocomplete="off" maxlength="300" placeholder="e.g., a cookbook and page, a link, Mom">
+      </label>
+      <label>Ingredients <span class="optional">one per line; these go on the shopping list</span>
+        <textarea name="ingredients" rows="8" placeholder="2 onions&#10;1 cup red lentils&#10;1 lemon"></textarea>
+      </label>
+      <label>How to make it <span class="optional">optional</span>
+        <textarea name="method" rows="4"></textarea>
+      </label>
+      <label class="heart-toggle"><input type="checkbox" name="keeper"><span class="heart-mark" aria-hidden="true"></span> A keeper: make it again</label>
+      <div class="dialog-actions">
+        <button type="button" class="btn danger" data-action="remove-recipe" id="remove-recipe" hidden>Remove this recipe</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn quiet" data-action="close-dialog">Cancel</button>
+        <button type="submit" class="btn primary" id="recipe-submit">Keep it</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
