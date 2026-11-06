@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Selma — a slow kitchen journal</title>
-  <meta name="description" content="What you cooked and when, the week's line-up, and a shopping list ready for the store.">
+  <meta name="description" content="What you cooked (and where you ate out) and when, the week's line-up, and a shopping list ready for the store.">
   <meta name="theme-color" content="#F6F3EE">
   <link rel="icon" href="selma-cook.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
@@ -50,7 +50,7 @@
       <div id="calendar"></div>
       <div class="top log-top">
         <h2>Everything, newest first</h2>
-        <input type="search" id="search" placeholder="Find a dish, a recipe, a note" autocomplete="off" aria-label="Find a dish">
+        <input type="search" id="search" placeholder="Find a dish, a place, a note" autocomplete="off" aria-label="Find a dish">
       </div>
       <div id="log"></div>
     </section>
@@ -65,6 +65,7 @@
       <div id="pick"></div>
       <div id="box"></div>
       <p class="pick-line"><button class="link" data-action="pick" id="pick-button">Can't decide? Pick one for me</button></p>
+      <div id="places-out"></div>
     </section>
   </main>
 
@@ -88,6 +89,10 @@
   <dialog id="meal-dialog">
     <form id="meal-form">
       <h2 id="meal-heading">What did you make?</h2>
+      <div class="kind" id="meal-kind" role="group" aria-label="Cooked or ate out">
+        <button type="button" aria-pressed="true">Cooked</button>
+        <button type="button" aria-pressed="false" data-action="switch-kind" data-to="out">Ate out</button>
+      </div>
       <input type="hidden" name="id">
       <label>The dish
         <input name="dish" required autocomplete="off" maxlength="120" list="dishes" placeholder="e.g., Lentil soup, banana bread">
@@ -110,6 +115,44 @@
         <span class="spacer"></span>
         <button type="button" class="btn quiet" data-action="close-dialog">Cancel</button>
         <button type="submit" class="btn primary" id="meal-submit">Keep it</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Planning a day ahead, or a dish already planned -->
+  <dialog id="plan-dialog" class="wide">
+    <div id="plan-card"></div>
+  </dialog>
+
+  <!-- Eating out: where, and what was worth having -->
+  <dialog id="out-dialog">
+    <form id="out-form">
+      <h2 id="out-heading">Where did you eat?</h2>
+      <div class="kind" id="out-kind" role="group" aria-label="Cooked or ate out">
+        <button type="button" aria-pressed="false" data-action="switch-kind" data-to="meal">Cooked</button>
+        <button type="button" aria-pressed="true">Ate out</button>
+      </div>
+      <input type="hidden" name="id">
+      <label>The place
+        <input name="place" required autocomplete="off" maxlength="120" list="places" placeholder="e.g., the Thai place on the corner, Mom's">
+        <datalist id="places"></datalist>
+      </label>
+      <div id="last-visit"></div>
+      <label>When?
+        <input name="day" type="date" required>
+      </label>
+      <label>What did you have? <span class="optional">optional</span>
+        <textarea name="had" rows="2" placeholder="e.g., the green curry, mango sticky rice"></textarea>
+      </label>
+      <label>How was it? Anything to order next time? <span class="optional">optional</span>
+        <textarea name="note" rows="3"></textarea>
+      </label>
+      <label class="heart-toggle"><input type="checkbox" name="keeper"><span class="heart-mark" aria-hidden="true"></span> A keeper: go back</label>
+      <div class="dialog-actions">
+        <button type="button" class="btn danger" data-action="remove-out" id="remove-out" hidden>Remove this</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn quiet" data-action="close-dialog">Cancel</button>
+        <button type="submit" class="btn primary" id="out-submit">Keep it</button>
       </div>
     </form>
   </dialog>

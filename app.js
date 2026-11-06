@@ -17,6 +17,7 @@ const state = loadState();
 const filter = { q: '', keepers: false, sort: 'az' };
 let view = 'week';
 let openDish = null;  // the key of the dish card that is open
+let openPlace = null; // or the key of the place card that is open (they share a dialog)
 let picked = null;    // the key of the dish Selma suggested
 let month = dayKey().slice(0, 7); // the month the calendar shows, as YYYY-MM
 
@@ -26,13 +27,17 @@ const mealDialog = $('#meal-dialog');
 const mealForm = $('#meal-form');
 const recipeDialog = $('#recipe-dialog');
 const recipeForm = $('#recipe-form');
+const outDialog = $('#out-dialog');
+const outForm = $('#out-form');
 
 function blankState() {
   // meals: [{ id, dish, day, from, note, at }]
   // recipes: { dishKey: { name, from, ingredients: [line], method } }
   // keepers: dish keys to make again; lineup: dish keys planned for the days ahead
   // shopping: { got: [item keys ticked off], extras: [{ id, text, got }] }
-  return { meals: [], recipes: {}, keepers: [], lineup: [], shopping: { got: [], extras: [] } };
+  // outings: [{ id, place, day, had, note, at }], the meals eaten out; placeKeepers: place keys to go back to
+  // plans: [{ id, key, day }], a dish put on a day ahead (it is in the line-up too, so its shopping is on the list)
+  return { meals: [], recipes: {}, keepers: [], lineup: [], shopping: { got: [], extras: [] }, outings: [], placeKeepers: [], plans: [] };
 }
 
 function loadState() {
@@ -102,6 +107,73 @@ function setKeeper(key, on) {
   if (on) state.keepers.push(key);
 }
 
+// Dishes planned for a day, soonest first. Plans more than a week past, never made, fall away.
+const plansOn = (day) => state.plans.filter((p) => p.day === day);
+const plansFor = (key) => state.plans.filter((p) => p.key === key).sort((a, b) => a.day.localeCompare(b.day));
+function planDay(key) {
+  const next = plansFor(key).find((p) => p.day >= dayKey());
+  return next ? next.day : null;
+}
+// "Sat" for a day this week ahead, "Today", or "Nov 18" further out.
+function whenShort(day) {
+  const n = daysBetween(dayKey(), day);
+  if (n === 0) return 'Today';
+  if (n === 1) return 'Tomorrow';
+  if (n > 1 && n < 7) return keyDate(day).toLocaleDateString('en-US', { weekday: 'long' });
+  return keyDate(day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+// The same, mid-sentence: "planned for tomorrow".
+const whenSay = (day) => whenShort(day).replace(/^(Today|Tomorrow)$/, (w) => w.toLowerCase());
+// Planning a dish for a day puts it in the line-up, so its ingredients go on the shopping list.
+function addPlan(key, day) {
+  state.plans.push({ id: newId(), key, day });
+  if (!state.lineup.includes(key)) state.lineup.push(key);
+}
+// Making a dish fulfills the plan for it nearest that day; once none is left, it leaves the line-up.
+function fulfill(key, day) {
+  const near = plansFor(key).sort((a, b) => Math.abs(daysBetween(a.day, day)) - Math.abs(daysBetween(b.day, day)))[0];
+  if (near) state.plans = state.plans.filter((p) => p !== near);
+  const left = plansFor(key).some((p) => p.day >= day);
+  if (!left && state.lineup.includes(key)) {
+    state.lineup = state.lineup.filter((k) => k !== key);
+    return true;
+  }
+  return false;
+}
+
+// Every place eaten out, its visits newest first; the name as last typed.
+function places() {
+  const out = new Map();
+  for (const visit of [...state.outings].sort(newestFirst)) {
+    const key = dishKey(visit.place);
+    if (!out.has(key)) out.set(key, { key, name: visit.place, visits: [] });
+    out.get(key).visits.push(visit);
+  }
+  return out;
+}
+const isFavPlace = (key) => state.placeKeepers.includes(key);
+function setFavPlace(key, on) {
+  state.placeKeepers = state.placeKeepers.filter((k) => k !== key);
+  if (on) state.placeKeepers.push(key);
+}
+function sinceVisit(place) {
+  const n = daysBetween(place.visits[0].day, dayKey());
+  if (n <= 0) return 'There today';
+  if (n === 1) return 'There yesterday';
+  return `Last there ${n} days ago`;
+}
+
+// Everything eaten on a day, in the order it was told: cooked and eaten out.
+function eatenOn(day) {
+  return [...state.meals.filter((m) => m.day === day), ...state.outings.filter((o) => o.day === day)].sort((a, b) => a.at - b.at);
+}
+// A chip for the week strip or the calendar: a dish opens its card, a meal out opens its place.
+function chipHTML(entry, cls) {
+  return entry.place
+    ? `<button class="${cls} out" data-action="open-place" data-key="${esc(dishKey(entry.place))}" title="Ate out">${esc(entry.place)}</button>`
+    : `<button class="${cls}" data-action="open-dish" data-key="${esc(dishKey(entry.dish))}">${esc(entry.dish)}</button>`;
+}
+
 // Days since a dish was last made (made today is 0), or null if it hasn't been yet.
 const daysSince = (dish) => (dish.meals.length ? daysBetween(dish.meals[0].day, dayKey()) : null);
 function sinceText(dish) {
@@ -137,7 +209,11 @@ function fromHTML(from) {
 function tidy() {
   const known = dishes();
   state.keepers = state.keepers.filter((k) => known.has(k));
+  const been = places();
+  state.placeKeepers = state.placeKeepers.filter((k) => been.has(k));
   state.lineup = state.lineup.filter((k) => known.has(k));
+  const stale = addDays(dayKey(), -7);
+  state.plans = state.plans.filter((p) => known.has(p.key) && p.day >= stale);
   state.shopping.got = state.shopping.got.filter((item) => state.lineup.includes(item.split('|')[0]));
 }
 
@@ -153,19 +229,41 @@ function rename(oldKey, name) {
   const swap = (k) => (k === oldKey ? key : k);
   state.keepers = [...new Set(state.keepers.map(swap))];
   state.lineup = [...new Set(state.lineup.map(swap))];
+  for (const plan of state.plans) plan.key = swap(plan.key);
   state.shopping.got = state.shopping.got.map((item) => item.startsWith(oldKey + '|') ? key + item.slice(oldKey.length) : item);
 }
 
 /* ---------- This week ---------- */
 
-function dayCellHTML(day, meals) {
-  const today = day === dayKey();
+// A planned dish, drawn dashed until it is made: tap it to say you made it, move it, or take it off.
+function planChipHTML(plan, cls) {
+  const dish = dishes().get(plan.key);
+  return `<button class="${cls} planned" data-action="open-plan" data-id="${plan.id}" title="Planned">${esc(dish ? dish.name : plan.key)}</button>`;
+}
+
+// A day in the strip: what was eaten, and what is planned. Days gone by log a meal; days ahead plan one.
+function dayCellHTML(day) {
+  const today = dayKey();
+  const ahead = day > today;
+  const eaten = ahead ? [] : eatenOn(day);
+  const plans = plansOn(day);
+  const action = ahead ? 'plan-day' : 'add-meal';
+  const any = eaten.length + plans.length;
+  const label = ahead ? `Plan something for ${shortDay(day)}` : `${any ? 'Something else' : 'What did you have'} on ${shortDay(day)}?`;
   const date = keyDate(day);
-  return `<li class="day-cell${today ? ' today' : ''}">
-    <p class="dname"><b>${today ? 'Today' : date.toLocaleDateString('en-US', { weekday: 'short' })}</b> ${date.getDate()}</p>
-    ${meals.map((m) => `<button class="dish-chip" data-action="open-dish" data-key="${esc(dishKey(m.dish))}">${esc(m.dish)}</button>`).join('')}
-    ${meals.length ? '' : `<button class="add-day" data-action="add-meal" data-day="${day}" aria-label="What did you make on ${esc(shortDay(day))}?">+</button>`}
+  return `<li class="day-cell${day === today ? ' today' : ''}${ahead ? ' ahead' : ''}" data-action="${action}" data-day="${day}">
+    <p class="dname"><b>${day === today ? 'Today' : date.toLocaleDateString('en-US', { weekday: 'short' })}</b> ${date.getDate()}</p>
+    ${eaten.map((e) => chipHTML(e, 'dish-chip')).join('')}
+    ${plans.map((p) => planChipHTML(p, 'dish-chip')).join('')}
+    <button class="add-day${any ? ' more' : ''}" data-action="${action}" data-day="${day}" aria-label="${esc(label)}">${ahead && !any ? 'Plan' : '+'}</button>
   </li>`;
+}
+
+// The line-up: dishes planned for a day first, soonest first, then the rest as they were added.
+function lineupDishes(all = dishes()) {
+  const list = state.lineup.map((k) => all.get(k)).filter(Boolean);
+  const rank = (d) => planDay(d.key) || '9999';
+  return list.map((d, i) => [d, i]).sort(([a, i], [b, j]) => rank(a).localeCompare(rank(b)) || i - j).map(([d]) => d);
 }
 
 function renderWeek() {
@@ -174,7 +272,7 @@ function renderWeek() {
         <button class="link" data-action="export">Save a backup</button><button class="link" data-action="backup-later">Later</button></p>`
     : '';
   const all = dishes();
-  if (!all.size) {
+  if (!all.size && !state.outings.length) {
     $('#week').innerHTML = `<div class="empty">
       <img src="selma-cook.svg" width="96" height="96" alt="">
       <h2>A clean kitchen, for now</h2>
@@ -185,20 +283,20 @@ function renderWeek() {
     return;
   }
 
-  // The past seven days, ending today.
+  // Three days back, today, and three ahead.
   const today = dayKey();
-  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
-  const strip = days.map((day) => dayCellHTML(day, state.meals.filter((m) => m.day === day).sort((a, b) => a.at - b.at))).join('');
+  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 3));
+  const strip = days.map(dayCellHTML).join('');
 
   // The line-up, and every other dish to choose from, longest since it was made first.
-  const lineup = state.lineup.map((k) => all.get(k)).filter(Boolean);
+  const lineup = lineupDishes(all);
   const longestFirst = (a, b) => (daysSince(b) ?? 1e6) - (daysSince(a) ?? 1e6) || a.name.localeCompare(b.name);
   const others = [...all.values()].filter((d) => !state.lineup.includes(d.key)).sort(longestFirst);
 
   $('#week').innerHTML = `
     <section class="block">
       <div class="block-head">
-        <h2>The past week</h2>
+        <h2>Around today</h2>
         <button class="btn primary" data-action="add-meal">I made something</button>
       </div>
       <ol class="strip">${strip}</ol>
@@ -211,13 +309,13 @@ function renderWeek() {
       </div>
       ${lineup.length ? `<ul class="lineup">${lineup.map((d) => `<li>
           <button class="lname" data-action="open-dish" data-key="${esc(d.key)}">${esc(d.name)}${isKeeper(d.key) ? ` <span class="keeper">${HEART}</span>` : ''}</button>
-          <span class="since">${esc(sinceText(d))}</span>
+          <span class="since">${planDay(d.key) ? `<span class="when-pill">${esc(whenShort(planDay(d.key)))}</span>` : ''}${esc(sinceText(d))}</span>
           <span class="row-tools">
             <button class="btn small" data-action="made-it" data-key="${esc(d.key)}">Made it</button>
             <button class="btn danger" data-action="unplan" data-key="${esc(d.key)}" aria-label="Take ${esc(d.name)} out of the line-up">Take out</button>
           </span>
         </li>`).join('')}</ul>`
-        : '<p class="quiet-line">Nothing lined up yet. Choose a few dishes below for the days ahead; their ingredients go on the shopping list.</p>'}
+        : '<p class="quiet-line">Nothing lined up yet. Plan a dish on a day above, or choose a few below for sometime soon; their ingredients go on the shopping list.</p>'}
       ${others.length ? `<p class="choose-label">Add to the line-up <span class="optional">longest since you made it first</span></p>
         <div class="choices">${others.map((d) => {
           const n = daysSince(d);
@@ -233,8 +331,7 @@ function renderWeek() {
 const itemKey = (key, line) => `${key}|${line.toLowerCase().trim()}`;
 
 function renderShop() {
-  const all = dishes();
-  const lineup = state.lineup.map((k) => all.get(k)).filter(Boolean);
+  const lineup = lineupDishes();
   const got = new Set(state.shopping.got);
   const itemHTML = (key, line) => {
     const id = itemKey(key, line);
@@ -249,7 +346,7 @@ function renderShop() {
     ${lineup.map((d) => {
       const lines = d.recipe?.ingredients || [];
       return `<section class="shop-dish">
-        <h2><button data-action="open-dish" data-key="${esc(d.key)}">${esc(d.name)}</button></h2>
+        <h2><button data-action="open-dish" data-key="${esc(d.key)}">${esc(d.name)}</button>${planDay(d.key) ? ` <span class="when-pill">${esc(whenShort(planDay(d.key)))}</span>` : ''}</h2>
         ${lines.length ? `<ul class="items">${ordered(d.key, lines).map((l) => itemHTML(d.key, l)).join('')}</ul>`
           : `<p class="quiet-line">No ingredients yet. <button class="link" data-action="edit-recipe" data-key="${esc(d.key)}">Add them</button></p>`}
       </section>`;
@@ -272,11 +369,10 @@ function renderShop() {
 
 // The list as plain text, for a notes app or a message: only what is still to get.
 function listText() {
-  const all = dishes();
   const got = new Set(state.shopping.got);
   const lines = [];
-  for (const key of state.lineup) {
-    const dish = all.get(key);
+  for (const dish of lineupDishes()) {
+    const key = dish.key;
     const left = (dish?.recipe?.ingredients || []).filter((l) => !got.has(itemKey(key, l)));
     if (left.length) lines.push(`${dish.name}:`, ...left.map((l) => `- ${l}`), '');
   }
@@ -291,39 +387,35 @@ function renderCalendar() {
   const first = keyDate(month + '-01');
   const start = mondayOf(dayKey(first));
   const today = dayKey();
-  const byDay = new Map();
-  for (const meal of state.meals) {
-    if (!byDay.has(meal.day)) byDay.set(meal.day, []);
-    byDay.get(meal.day).push(meal);
-  }
   const cells = [];
   for (let day = start; cells.length < 42; day = addDays(day, 1)) {
     if (cells.length % 7 === 0 && cells.length >= 28 && !day.startsWith(month)) break;
-    const meals = (byDay.get(day) || []).sort((a, b) => a.at - b.at);
-    const inMonth = day.startsWith(month);
     const future = day > today;
-    cells.push(`<li class="cal-day${inMonth ? '' : ' other'}${day === today ? ' today' : ''}${future ? ' future' : ''}">
-      ${future || meals.length ? `<span class="num">${keyDate(day).getDate()}</span>`
-        : `<button class="num" data-action="add-meal" data-day="${day}" aria-label="What did you make on ${esc(shortDay(day))}?">${keyDate(day).getDate()}</button>`}
-      ${meals.map((m) => `<button class="cal-dish" data-action="open-dish" data-key="${esc(dishKey(m.dish))}">${esc(m.dish)}</button>`).join('')}
+    const eaten = future ? [] : eatenOn(day);
+    const inMonth = day.startsWith(month);
+    const action = future ? 'plan-day' : 'add-meal';
+    cells.push(`<li class="cal-day${inMonth ? '' : ' other'}${day === today ? ' today' : ''}${future ? ' future' : ''}" data-action="${action}" data-day="${day}">
+      <button class="num" data-action="${action}" data-day="${day}" aria-label="${future ? `Plan something for ${esc(shortDay(day))}` : `What did you make on ${esc(shortDay(day))}?`}">${keyDate(day).getDate()}</button>
+      ${eaten.map((e) => chipHTML(e, 'cal-dish')).join('')}
+      ${plansOn(day).map((p) => planChipHTML(p, 'cal-dish')).join('')}
     </li>`);
   }
   const title = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   $('#calendar').innerHTML = `<div class="cal-head">
       <button class="btn quiet round" data-action="month" data-step="-1" aria-label="The month before">‹</button>
       <h2>${esc(title)}</h2>
-      <button class="btn quiet round" data-action="month" data-step="1" aria-label="The month after" ${month >= today.slice(0, 7) ? 'disabled' : ''}>›</button>
+      <button class="btn quiet round" data-action="month" data-step="1" aria-label="The month after" ${month > today.slice(0, 7) ? 'disabled' : ''}>›</button>
     </div>
     <ol class="cal-names" aria-hidden="true">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<li>${d}</li>`).join('')}</ol>
     <ol class="cal">${cells.join('')}</ol>
-    <p class="hint-line">Tap a day to tell Selma what you made then.</p>`;
+    <p class="hint-line">Tap a day gone by to tell Selma what you made then, or where you ate out${state.outings.length ? ' (meals out are in green)' : ''}. Tap a day ahead to plan a dish; planned dishes have a dashed outline.</p>`;
   renderLog();
 }
 
 function matches(meal) {
   const q = filter.q.trim().toLowerCase();
   if (!q) return true;
-  const text = [meal.dish, meal.from, meal.note].join(' ').toLowerCase();
+  const text = [meal.dish, meal.from, meal.place, meal.had, meal.note].join(' ').toLowerCase();
   return q.split(/\s+/).every((word) => text.includes(word));
 }
 
@@ -335,6 +427,7 @@ function weekName(monday) {
 }
 
 function mealHTML(meal) {
+  if (meal.place) return outHTML(meal);
   const key = dishKey(meal.dish);
   return `<li><button class="meal" data-action="open-dish" data-key="${esc(key)}">
     <span class="day">${esc(shortDay(meal.day))}</span>
@@ -346,13 +439,25 @@ function mealHTML(meal) {
   </button></li>`;
 }
 
+function outHTML(visit) {
+  const key = dishKey(visit.place);
+  return `<li><button class="meal out" data-action="open-place" data-key="${esc(key)}">
+    <span class="day">${esc(shortDay(visit.day))}</span>
+    <span class="what">
+      <span class="name">${esc(visit.place)}${isFavPlace(key) ? ` <span class="keeper" title="A keeper">${HEART}</span>` : ''}</span>
+      <span class="from">Ate out${visit.had ? `: ${esc(visit.had)}` : ''}</span>
+      ${visit.note ? `<span class="note">${esc(visit.note)}</span>` : ''}
+    </span>
+  </button></li>`;
+}
+
 function renderLog() {
   const el = $('#log');
-  if (!state.meals.length) {
+  if (!state.meals.length && !state.outings.length) {
     el.innerHTML = '<p class="quiet-line">Nothing made yet.</p>';
     return;
   }
-  const meals = state.meals.filter(matches).sort(newestFirst);
+  const meals = [...state.meals, ...state.outings].filter(matches).sort(newestFirst);
   if (!meals.length) {
     el.innerHTML = '<p class="empty">Nothing in the kitchen matches that.</p>';
     return;
@@ -402,6 +507,24 @@ function renderBox() {
   $('#box').innerHTML = list.length
     ? `<div class="cards">${list.map(cardHTML).join('')}</div>`
     : '<p class="empty">Nothing in the recipe box yet. Add your usual recipes, with their ingredients, and they line up here.</p>';
+  renderPlaces();
+}
+
+// The places you've eaten out, most recent first, below the recipe box.
+function renderPlaces() {
+  const list = [...places().values()].sort((a, b) => newestFirst(a.visits[0], b.visits[0]));
+  $('#places-out').innerHTML = list.length ? `<section class="block places">
+    <div class="block-head"><h2>Eating out</h2><button class="btn quiet" data-action="add-out">We ate out</button></div>
+    <div class="cards">${list.map((p) => {
+      const had = p.visits.find((v) => v.had)?.had;
+      return `<button class="card out" data-action="open-place" data-key="${esc(p.key)}">
+        <span class="name">${esc(p.name)}</span>
+        ${isFavPlace(p.key) ? `<span class="keeper" title="A keeper">${HEART}</span>` : ''}
+        <span class="last">${esc(sinceVisit(p))}</span>
+        ${had ? `<span class="from">Had ${esc(had)}</span>` : ''}
+      </button>`;
+    }).join('')}</div>
+  </section>` : '';
 }
 
 // Selma suggests a dish: a keeper if there are any, and not one made in the last week if that can be helped.
@@ -431,6 +554,7 @@ function renderPick() {
 /* ---------- A dish card ---------- */
 
 function renderDish() {
+  if (openPlace) return renderPlace();
   const dish = dishes().get(openDish);
   if (!dish) return dishDialog.close();
   const from = [...new Set([dish.recipe?.from, ...dish.meals.map((m) => m.from)].filter(Boolean))];
@@ -440,7 +564,7 @@ function renderDish() {
     <div class="head">
       <div>
         <h2>${esc(dish.name)}</h2>
-        <p class="from">${esc(sinceText(dish))}${from.length ? ` · ${from.map((f) => (madeItUp(f) ? '' : 'from ') + fromHTML(f)).join('; ')}` : ''}</p>
+        <p class="from">${esc(sinceText(dish))}${planDay(dish.key) ? ` · planned for ${esc(whenSay(planDay(dish.key)))}` : ''}${from.length ? ` · ${from.map((f) => (madeItUp(f) ? '' : 'from ') + fromHTML(f)).join('; ')}` : ''}</p>
       </div>
       <button class="heart" data-action="keeper" aria-pressed="${isKeeper(dish.key)}" aria-label="A keeper" title="${isKeeper(dish.key) ? 'A keeper' : 'Mark as a keeper'}">${HEART}</button>
     </div>
@@ -467,14 +591,52 @@ function renderDish() {
   </article>`;
 }
 
+// A place: every visit, with what you had and what you said.
+function renderPlace() {
+  const place = places().get(openPlace);
+  if (!place) return dishDialog.close();
+  const visits = place.visits.length;
+  $('#dish-card').innerHTML = `<article class="dish">
+    <div class="head">
+      <div>
+        <h2>${esc(place.name)}</h2>
+        <p class="from">${esc(sinceVisit(place))} · ${visits === 1 ? 'once' : visits === 2 ? 'twice' : `${visits} times`}</p>
+      </div>
+      <button class="heart" data-action="keeper" aria-pressed="${isFavPlace(place.key)}" aria-label="A keeper" title="${isFavPlace(place.key) ? 'A keeper' : 'Mark as a keeper'}">${HEART}</button>
+    </div>
+    <section>
+      <h3>Visits</h3>
+      <ul class="times">${place.visits.map((v) => `<li>
+        <p class="when">${esc(longDate(v.day))}<button class="btn danger" data-action="edit-out" data-id="${v.id}">Edit</button></p>
+        ${v.had ? `<p class="had">Had ${esc(v.had)}</p>` : ''}
+        ${v.note ? `<p class="said">${esc(v.note)}</p>` : ''}
+      </li>`).join('')}</ul>
+    </section>
+    <div class="foot">
+      <button class="btn primary" data-action="went-again" data-key="${esc(place.key)}">We went again</button>
+      <span class="spacer"></span>
+      <button class="btn quiet" data-action="close-dialog">Close</button>
+    </div>
+  </article>`;
+}
+
+function openPlaceCard(key) {
+  openDish = null;
+  openPlace = key;
+  renderPlace();
+  if (!dishDialog.open) dishDialog.showModal();
+  dishDialog.scrollTop = 0;
+}
+
 function openDishCard(key) {
+  openPlace = null;
   openDish = key;
   renderDish();
   if (!dishDialog.open) dishDialog.showModal();
   dishDialog.scrollTop = 0;
 }
 
-dishDialog.addEventListener('close', () => { openDish = null; });
+dishDialog.addEventListener('close', () => { openDish = null; openPlace = null; });
 dishDialog.addEventListener('click', (event) => {
   if (event.target === dishDialog) dishDialog.close();
 });
@@ -487,6 +649,7 @@ function openMeal(meal, { dish = '', day = '' } = {}) {
   $('#meal-heading').textContent = isNew ? (day && day !== dayKey() ? `What did you make on ${shortDay(day)}?` : 'What did you make?') : 'Change this';
   $('#meal-submit').textContent = isNew ? 'Keep it' : 'Save';
   $('#remove-meal').hidden = isNew;
+  $('#meal-kind').hidden = !isNew;
   const all = [...dishes().values()];
   $('#dishes').innerHTML = all.map((d) => `<option value="${esc(d.name)}">`).join('');
   $('#sources').innerHTML = [...new Set(all.map(fromOf).filter(Boolean))].sort()
@@ -538,11 +701,10 @@ mealForm.addEventListener('submit', (event) => {
   } else {
     state.meals.push({ id: newId(), ...details, at: Date.now() });
     message = 'Kept. Sounds good.';
-    // Making a dish from the line-up takes it off, along with its shopping.
-    if (state.lineup.includes(key)) {
-      state.lineup = state.lineup.filter((k) => k !== key);
-      message = 'Kept, and taken off the line-up.';
-    }
+    // Making a dish from the line-up (or planned for a day) takes it off, along with its shopping.
+    const wasPlanned = state.lineup.includes(key) || plansFor(key).length;
+    if (fulfill(key, details.day)) message = 'Kept, and taken off the line-up.';
+    else if (wasPlanned) message = 'Kept. Sounds good.';
   }
   setKeeper(key, form.get('keeper') === 'on');
   tidy();
@@ -550,8 +712,132 @@ mealForm.addEventListener('submit', (event) => {
   mealDialog.close();
   toast(message);
   if (dishDialog.open) {
-    if (dishes().has(openDish)) renderDish();
+    if (openPlace || dishes().has(openDish)) renderDish();
     else openDishCard(key);
+  }
+  RENDER[view]();
+});
+
+/* ---------- Planning a day ---------- */
+
+const planDialog = $('#plan-dialog');
+let planFor = null; // the day being planned
+
+// Choosing a dish for a day ahead: the line-up first, then the rest, longest since first.
+function openPlanDay(day) {
+  planFor = day;
+  const all = [...dishes().values()];
+  const longestFirst = (a, b) => (daysSince(b) ?? 1e6) - (daysSince(a) ?? 1e6) || a.name.localeCompare(b.name);
+  const onDay = new Set(plansOn(day).map((p) => p.key));
+  const choice = (d) => {
+    const n = daysSince(d);
+    const when = planDay(d.key);
+    return `<button class="choice${n !== null && n < RESTING_DAYS ? ' recent' : ''}" data-action="plan-pick" data-key="${esc(d.key)}" ${onDay.has(d.key) ? 'disabled' : ''}>
+      <span class="cname">${esc(d.name)}</span><span class="since">${esc(onDay.has(d.key) ? 'already planned' : when ? `planned ${whenSay(when)}` : n === null ? 'not made yet' : n <= 0 ? 'made today' : n === 1 ? 'made yesterday' : `made ${n} days ago`)}</span>
+    </button>`;
+  };
+  const lined = all.filter((d) => state.lineup.includes(d.key)).sort(longestFirst);
+  const rest = all.filter((d) => !state.lineup.includes(d.key)).sort(longestFirst);
+  $('#plan-card').innerHTML = `<div class="plan">
+    <h2>What's for ${esc(whenSay(day) === 'tomorrow' ? 'tomorrow' : shortDay(day))}?</h2>
+    ${all.length ? `${lined.length ? `<p class="choose-label">From the line-up</p><div class="choices">${lined.map(choice).join('')}</div>` : ''}
+      ${rest.length ? `<p class="choose-label">${lined.length ? 'Everything else' : 'Your dishes'} <span class="optional">longest since you made it first</span></p><div class="choices">${rest.map(choice).join('')}</div>` : ''}`
+      : '<p class="quiet-line">No dishes yet. Add a recipe first, and you can plan it here.</p>'}
+    <div class="dialog-actions">
+      <button class="btn quiet" data-action="add-recipe">Add a recipe</button>
+      <span class="spacer"></span>
+      <button class="btn quiet" data-action="close-dialog">Cancel</button>
+    </div>
+  </div>`;
+  if (!planDialog.open) planDialog.showModal();
+}
+
+// A planned dish: make it, move it, or take it off the day.
+function openPlan(id) {
+  const plan = state.plans.find((p) => p.id === id);
+  if (!plan) return;
+  const dish = dishes().get(plan.key);
+  const past = plan.day < dayKey();
+  $('#plan-card').innerHTML = `<div class="plan">
+    <p class="choose-label">Planned for ${esc(shortDay(plan.day))}</p>
+    <h2><button class="link big" data-action="open-dish" data-key="${esc(plan.key)}">${esc(dish.name)}</button></h2>
+    <p class="quiet-line">${esc(sinceText(dish))}.</p>
+    <label>Move it to
+      <input type="date" id="plan-move" value="${plan.day}" min="${dayKey()}">
+    </label>
+    <div class="dialog-actions">
+      <button class="btn danger" data-action="plan-remove" data-id="${plan.id}">Take it off this day</button>
+      <span class="spacer"></span>
+      ${plan.day <= dayKey() ? `<button class="btn primary" data-action="plan-made" data-id="${plan.id}">${past ? 'I made it' : 'Made it'}</button>` : ''}
+      <button class="btn quiet" data-action="close-dialog">Close</button>
+    </div>
+  </div>`;
+  $('#plan-move').addEventListener('change', (event) => {
+    if (!event.target.value) return;
+    plan.day = event.target.value;
+    save();
+    planDialog.close();
+    RENDER[view]();
+    toast(`Moved to ${whenSay(plan.day)}.`);
+  });
+  if (!planDialog.open) planDialog.showModal();
+}
+
+/* ---------- Eating out ---------- */
+
+function openOut(visit, { place = '', day = '' } = {}) {
+  outForm.reset();
+  const isNew = !visit;
+  $('#out-heading').textContent = isNew ? (day && day !== dayKey() ? `Where did you eat on ${shortDay(day)}?` : 'Where did you eat?') : 'Change this';
+  $('#out-submit').textContent = isNew ? 'Keep it' : 'Save';
+  $('#remove-out').hidden = isNew;
+  $('#out-kind').hidden = !isNew;
+  $('#places').innerHTML = [...places().values()].map((p) => `<option value="${esc(p.name)}">`).join('');
+  outForm.id.value = visit?.id || '';
+  outForm.place.value = visit?.place || place;
+  outForm.day.value = visit?.day || day || dayKey();
+  outForm.had.value = visit?.had || '';
+  outForm.note.value = visit?.note || '';
+  outForm.keeper.checked = isFavPlace(dishKey(outForm.place.value));
+  recallPlace();
+  outDialog.showModal();
+  if (place) outForm.had.focus();
+}
+
+// Typing a place you've been brings back when that was and what you had.
+function recallPlace() {
+  const place = places().get(dishKey(outForm.place.value));
+  const earlier = place?.visits.filter((v) => v.id !== outForm.id.value) || [];
+  const had = earlier.find((v) => v.had);
+  const note = earlier.find((v) => v.note);
+  $('#last-visit').innerHTML = earlier.length ? `<p class="last-time">
+    Last there ${esc(longDate(earlier[0].day))}.${had ? ` You had ${esc(had.had)}.` : ''}${note ? ` You said: “${esc(note.note)}”` : ''}</p>` : '';
+  if (!outForm.id.value && place) outForm.keeper.checked = isFavPlace(place.key);
+}
+outForm.place.addEventListener('input', recallPlace);
+
+outForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = new FormData(outForm);
+  let place = form.get('place').trim().replace(/\s+/g, ' ');
+  if (!place) return;
+  const known = places().get(dishKey(place));
+  if (known && place === place.toLowerCase()) place = known.name;
+  const key = dishKey(place);
+  const details = { place, day: form.get('day') || dayKey(), had: form.get('had').trim(), note: form.get('note').trim() };
+  const id = form.get('id');
+  if (id) Object.assign(state.outings.find((o) => o.id === id), details);
+  else state.outings.push({ id: newId(), ...details, at: Date.now() });
+  // The same place however it was typed: every visit takes the latest spelling.
+  for (const o of state.outings) if (dishKey(o.place) === key) o.place = place;
+  setFavPlace(key, form.get('keeper') === 'on');
+  tidy();
+  save();
+  outDialog.close();
+  toast(id ? 'Saved.' : 'Kept. Sounds tasty.');
+  if (dishDialog.open) {
+    if (places().has(openPlace)) renderPlace();
+    else openPlaceCard(key);
   }
   RENDER[view]();
 });
@@ -637,20 +923,61 @@ document.addEventListener('click', (event) => {
   const key = el.dataset.key;
 
   if (action === 'add-meal') openMeal(null, { day: el.dataset.day });
+  else if (action === 'plan-day') openPlanDay(el.dataset.day);
+  else if (action === 'open-plan') openPlan(el.dataset.id);
+  else if (action === 'plan-pick') {
+    addPlan(key, planFor);
+    save();
+    planDialog.close();
+    RENDER[view]();
+    toast(`Planned for ${whenSay(planFor)}, and on the shopping list.`);
+  }
+  else if (action === 'plan-made') {
+    const plan = state.plans.find((p) => p.id === el.dataset.id);
+    planDialog.close();
+    openMeal(null, { dish: dishes().get(plan.key).name, day: plan.day });
+  }
+  else if (action === 'plan-remove') {
+    state.plans = state.plans.filter((p) => p.id !== el.dataset.id);
+    save();
+    planDialog.close();
+    RENDER[view]();
+    toast('Taken off that day. It is still in the line-up.');
+  }
   else if (action === 'made-it') openMeal(null, { dish: dishes().get(key).name });
-  else if (action === 'open-dish') openDishCard(key);
+  else if (action === 'open-dish') {
+    if (planDialog.open) planDialog.close();
+    openDishCard(key);
+  }
+  else if (action === 'open-place') openPlaceCard(key);
+  else if (action === 'add-out') openOut(null);
+  else if (action === 'went-again') openOut(null, { place: places().get(key).name });
+  else if (action === 'edit-out') openOut(state.outings.find((o) => o.id === el.dataset.id));
+  else if (action === 'switch-kind') {
+    // Cooked or ate out: the day chosen comes along.
+    const day = (el.dataset.to === 'out' ? mealForm : outForm).day.value;
+    el.closest('dialog').close();
+    if (el.dataset.to === 'out') openOut(null, { day });
+    else openMeal(null, { day });
+  }
   else if (action === 'close-dialog') el.closest('dialog').close();
   else if (action === 'edit-meal') openMeal(state.meals.find((m) => m.id === el.dataset.id));
-  else if (action === 'add-recipe') openRecipe();
+  else if (action === 'add-recipe') {
+    if (planDialog.open) planDialog.close();
+    openRecipe();
+  }
   else if (action === 'edit-recipe') openRecipe(key);
   else if (action === 'keeper') {
-    setKeeper(openDish, !isKeeper(openDish));
+    if (openPlace) setFavPlace(openPlace, !isFavPlace(openPlace));
+    else setKeeper(openDish, !isKeeper(openDish));
     save();
     renderDish();
     RENDER[view]();
   }
   else if (action === 'plan' || action === 'unplan') {
     state.lineup = state.lineup.filter((k) => k !== key);
+    // Out of the line-up means off the days ahead too.
+    if (action === 'unplan') state.plans = state.plans.filter((p) => p.key !== key || p.day < dayKey());
     if (action === 'plan') state.lineup.push(key);
     if (picked === key) picked = null;
     tidy();
@@ -665,6 +992,16 @@ document.addEventListener('click', (event) => {
     tidy();
     save();
     mealDialog.close();
+    if (dishDialog.open) renderDish();
+    RENDER[view]();
+    toast('Removed.');
+  }
+  else if (action === 'remove-out') {
+    if (!confirm('Remove this from the journal?')) return;
+    state.outings = state.outings.filter((o) => o.id !== outForm.id.value);
+    tidy();
+    save();
+    outDialog.close();
     if (dishDialog.open) renderDish();
     RENDER[view]();
     toast('Removed.');
@@ -778,11 +1115,12 @@ function exportBackup() {
 // A gentle reminder on This week: a week after the first entry if there has never been a backup,
 // or two weeks after the last one. "Later" puts it off for three days.
 function backupDue() {
-  if (!state.meals.length) return false;
+  const entries = [...state.meals, ...state.outings];
+  if (!entries.length) return false;
   const later = localStorage.getItem(BACKUP_KEY + '-later');
   if (later && later > dayKey()) return false;
   const last = localStorage.getItem(BACKUP_KEY);
-  const first = dayKey(new Date(Math.min(...state.meals.map((m) => m.at))));
+  const first = dayKey(new Date(Math.min(...entries.map((m) => m.at))));
   return last ? daysBetween(last, dayKey()) >= 14 : daysBetween(first, dayKey()) >= 7;
 }
 
@@ -800,7 +1138,7 @@ $('#import-file').addEventListener('change', async (event) => {
     return toast('That file is not a Selma kitchen journal backup.');
   }
   const recipes = Object.keys(data.recipes || {}).length;
-  if (!confirm(`Replace everything on this device with this backup? It holds ${recipes} recipes and ${data.meals.length} meals. What is here now will be gone.`)) return;
+  if (!confirm(`Replace everything on this device with this backup? It holds ${recipes} recipes, ${data.meals.length} meals cooked and ${(data.outings || []).length} out. What is here now will be gone.`)) return;
   for (const key of Object.keys(state)) delete state[key];
   Object.assign(state, blankState(), data);
   save();

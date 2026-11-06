@@ -390,6 +390,9 @@ footer .backup .btn { font-size: 14px; padding: 7px 14px; }
   cursor: pointer;
 }
 .add-day:hover { border-color: var(--sage); color: var(--sage-text); }
+.add-day.more { flex: 0 0 auto; min-height: 30px; font-size: 16px; }
+.day-cell[data-action], .cal-day[data-action] { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.cal-day[data-action]:hover { border-color: var(--sage); }
 
 /* The line-up */
 .lineup { list-style: none; margin: 0 0 20px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -476,6 +479,7 @@ button.num:hover { background: var(--sage-soft); color: var(--sage-text); }
   .day-cell { flex-direction: row; align-items: center; flex-wrap: wrap; min-height: 0; padding: 8px 10px; gap: 8px; }
   .dname { width: 64px; }
   .add-day { flex: 1; min-height: 34px; font-size: 18px; }
+  .add-day.more { flex: 0 0 auto; width: 40px; margin-left: auto; }
   .cal-day { min-height: 64px; padding: 3px; }
   .cal-dish { font-size: 11px; padding: 2px 3px; line-height: 1.2; overflow-wrap: normal; hyphens: auto; overflow: hidden; }
   .cal-names li { padding: 0 2px 4px; font-size: 12px; }
@@ -497,3 +501,39 @@ button.num:hover { background: var(--sage-soft); color: var(--sage-text); }
 }
 
 dialog form > label > input, dialog form label > textarea { display: block; width: 100%; margin-top: 6px; }
+
+/* Eating out: sage, where home cooking is clay */
+.kind { display: flex; gap: 6px; margin-top: -4px; }
+.kind[hidden] { display: none; }
+.kind button {
+  font: 400 15px var(--sans);
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.kind button:hover { border-color: var(--sage); }
+.kind button[aria-pressed="true"] { background: var(--sage-soft); border-color: var(--sage); color: var(--sage-text); font-weight: 500; cursor: default; }
+.dish-chip.out, .cal-dish.out { color: var(--sage-text); background: var(--sage-soft); }
+.dish-chip.out:hover, .cal-dish.out:hover { background: #D7E2D9; }
+.card.out .name { border-bottom-color: var(--sage); }
+.places { margin-top: 44px; }
+.times .had { margin: 2px 0 0; color: var(--sage-text); overflow-wrap: anywhere; }
+
+/* Planning: days ahead sit lighter, planned dishes are dashed until made */
+.day-cell.ahead { background: none; border-style: dashed; }
+.day-cell.ahead .add-day:not(.more) { font: 500 14px var(--sans); }
+.dish-chip.planned, .cal-dish.planned { background: none; border: 1px dashed var(--clay); color: var(--clay-deep); }
+.dish-chip.planned:hover, .cal-dish.planned:hover { background: var(--clay-soft); }
+.when-pill { display: inline-block; margin-right: 8px; font: 500 12px var(--sans); color: var(--sage-text); background: var(--sage-soft); border-radius: 999px; padding: 2px 9px; vertical-align: 2px; }
+.shop-dish h2 .when-pill { margin: 0 0 0 6px; }
+.plan { padding: 24px; display: grid; gap: 10px; }
+.plan h2 { margin-bottom: 4px; }
+.plan .choose-label { margin: 8px 0 2px; }
+.plan .choice[disabled] { opacity: .5; cursor: default; }
+.plan label { display: block; font-size: 14px; font-weight: 500; }
+.plan label input { display: block; margin-top: 6px; }
+.plan .quiet-line { margin: 0; }
+.cal-day.future { cursor: pointer; }
