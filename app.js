@@ -247,15 +247,17 @@ function dayCellHTML(day) {
   const ahead = day > today;
   const eaten = ahead ? [] : eatenOn(day);
   const plans = plansOn(day);
-  const action = ahead ? 'plan-day' : 'add-meal';
+  // Today plans, like the days ahead; days gone by log what was had.
+  const planning = day >= today;
+  const action = planning ? 'plan-day' : 'add-meal';
   const any = eaten.length + plans.length;
-  const label = ahead ? `Plan something for ${shortDay(day)}` : `${any ? 'Something else' : 'What did you have'} on ${shortDay(day)}?`;
+  const label = planning ? `Plan something for ${shortDay(day)}` : `${any ? 'Something else' : 'What did you have'} on ${shortDay(day)}?`;
   const date = keyDate(day);
   return `<li class="day-cell${day === today ? ' today' : ''}${ahead ? ' ahead' : ''}" data-action="${action}" data-day="${day}">
     <p class="dname"><b>${day === today ? 'Today' : date.toLocaleDateString('en-US', { weekday: 'short' })}</b> ${date.getDate()}</p>
     ${eaten.map((e) => chipHTML(e, 'dish-chip')).join('')}
     ${plans.map((p) => planChipHTML(p, 'dish-chip')).join('')}
-    <button class="add-day${any ? ' more' : ''}" data-action="${action}" data-day="${day}" aria-label="${esc(label)}">${ahead && !any ? 'Plan' : '+'}</button>
+    <button class="add-day${any ? ' more' : ''}" data-action="${action}" data-day="${day}" aria-label="${esc(label)}">${planning && !any ? 'Plan' : '+'}</button>
   </li>`;
 }
 
@@ -393,9 +395,9 @@ function renderCalendar() {
     const future = day > today;
     const eaten = future ? [] : eatenOn(day);
     const inMonth = day.startsWith(month);
-    const action = future ? 'plan-day' : 'add-meal';
+    const action = day >= today ? 'plan-day' : 'add-meal';
     cells.push(`<li class="cal-day${inMonth ? '' : ' other'}${day === today ? ' today' : ''}${future ? ' future' : ''}" data-action="${action}" data-day="${day}">
-      <button class="num" data-action="${action}" data-day="${day}" aria-label="${future ? `Plan something for ${esc(shortDay(day))}` : `What did you make on ${esc(shortDay(day))}?`}">${keyDate(day).getDate()}</button>
+      <button class="num" data-action="${action}" data-day="${day}" aria-label="${day >= today ? `Plan something for ${esc(shortDay(day))}` : `What did you make on ${esc(shortDay(day))}?`}">${keyDate(day).getDate()}</button>
       ${eaten.map((e) => chipHTML(e, 'cal-dish')).join('')}
       ${plansOn(day).map((p) => planChipHTML(p, 'cal-dish')).join('')}
     </li>`);
@@ -408,7 +410,7 @@ function renderCalendar() {
     </div>
     <ol class="cal-names" aria-hidden="true">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<li>${d}</li>`).join('')}</ol>
     <ol class="cal">${cells.join('')}</ol>
-    <p class="hint-line">Tap a day gone by to tell Selma what you made then, or where you ate out${state.outings.length ? ' (meals out are in green)' : ''}. Tap a day ahead to plan a dish; planned dishes have a dashed outline.</p>`;
+    <p class="hint-line">Tap a day gone by to tell Selma what you made then, or where you ate out${state.outings.length ? ' (meals out are in green)' : ''}. Tap today or a day ahead to plan a dish; planned dishes have a dashed outline.</p>`;
   renderLog();
 }
 
@@ -739,10 +741,11 @@ function openPlanDay(day) {
   const lined = all.filter((d) => state.lineup.includes(d.key)).sort(longestFirst);
   const rest = all.filter((d) => !state.lineup.includes(d.key)).sort(longestFirst);
   $('#plan-card').innerHTML = `<div class="plan">
-    <h2>What's for ${esc(whenSay(day) === 'tomorrow' ? 'tomorrow' : shortDay(day))}?</h2>
+    <h2>What's for ${esc(['today', 'tomorrow'].includes(whenSay(day)) ? whenSay(day) : shortDay(day))}?</h2>
     ${all.length ? `${lined.length ? `<p class="choose-label">From the line-up</p><div class="choices">${lined.map(choice).join('')}</div>` : ''}
       ${rest.length ? `<p class="choose-label">${lined.length ? 'Everything else' : 'Your dishes'} <span class="optional">longest since you made it first</span></p><div class="choices">${rest.map(choice).join('')}</div>` : ''}`
       : '<p class="quiet-line">No dishes yet. Add a recipe first, and you can plan it here.</p>'}
+    ${day === dayKey() ? '<p class="log-instead">Already eaten? <button class="link" data-action="add-meal">Tell Selma what you had</button></p>' : ''}
     <div class="dialog-actions">
       <button class="btn quiet" data-action="add-recipe">Add a recipe</button>
       <span class="spacer"></span>
@@ -922,7 +925,10 @@ document.addEventListener('click', (event) => {
   const action = el.dataset.action;
   const key = el.dataset.key;
 
-  if (action === 'add-meal') openMeal(null, { day: el.dataset.day });
+  if (action === 'add-meal') {
+    if (planDialog.open) planDialog.close();
+    openMeal(null, { day: el.dataset.day });
+  }
   else if (action === 'plan-day') openPlanDay(el.dataset.day);
   else if (action === 'open-plan') openPlan(el.dataset.id);
   else if (action === 'plan-pick') {

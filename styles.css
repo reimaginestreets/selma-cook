@@ -537,3 +537,4 @@ dialog form > label > input, dialog form label > textarea { display: block; widt
 .plan label input { display: block; margin-top: 6px; }
 .plan .quiet-line { margin: 0; }
 .cal-day.future { cursor: pointer; }
+.log-instead { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
